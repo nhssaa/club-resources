@@ -1,0 +1,76 @@
+name: PR checks
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  pr-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secrets scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+
+      - name: Personal data scan
+        run: |
+          set -e
+          HITS=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -z | xargs -0 grep -rIlE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|(\+?1[-. ]?)?\(?[0-9]{3}\)?[-. ][0-9]{3}[-. ][0-9]{4}' --exclude-dir=.github || true)
+          if [ -n "$HITS" ]; then
+            echo "Possible personal data (emails/phones) found in:"
+            echo "$HITS"
+            echo "Remove personal information before this can be merged."
+            exit 1
+          fi
+
+      - name: Large file check
+        run: |
+          BIG=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -z | xargs -0 -I{} sh -c 'test -f "{}" && test $(stat -c%s "{}") -gt 524288 && echo "{}"' || true)
+          if [ -n "$BIG" ]; then
+            echo "Files over 512KB are not allowed. Link to data instead:"
+            echo "$BIG"
+            exit 1
+          fi
+
+      - name: Notebook hygiene
+        run: |
+          for nb in $(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '\.ipynb$' || true); do
+            if grep -q '"output_type": "stream"\|"output_type": "execute_result"\|"output_type": "display_data"' "$nb" 2>/dev/null; then
+              echo "Notebook $nb has committed outputs. Clear outputs before committing (jupyter nbconvert --clear-output)."
+              exit 1
+            fi
+          done
+
+      - name: Attribution check
+        run: |
+          for f in $(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '\.(py|ipynb|md)$' || true); do
+            if ! grep -qiE 'source|credit|attribution|data:|adapted|from http|license' "$f" 2>/dev/null; then
+              echo "::warning file=$f::No source/attribution note found. If this uses external data or ideas, credit them."
+            fi
+          done
+
+      - name: Review agent questionnaire
+        if: github.event.action == 'opened'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              "Thanks for contributing upstream! Automated checks run on this PR. Before a core-team review, please answer in a comment:",
+              "",
+              "1. **What is this?** One or two sentences on what the contribution does and who it helps.",
+              "2. **How did you test it?** What did you run, on what machine, and what happened?",
+              "3. **What data does it use?** Name the dataset and where it comes from (a link).",
+              "4. **Anything personal?** Confirm there are no names, emails, phone numbers or other personal information in the code, data, comments or commit messages.",
+              "",
+              "A member of the NHSSAA core team reviews every PR and does the merge. This agent never merges."
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
