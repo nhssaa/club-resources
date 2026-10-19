@@ -11,6 +11,11 @@ Chapters work in their own repos (start from [nhssaa/chapter-template](https://g
 3. The NHSSAA review agent asks what the contribution does, how it was tested, what data it uses, and whether it contains any personal information. Answer in the PR.
 4. A core-team human reviews and merges. The agent never merges.
 
+## Two things to know before you contribute
+
+- Anything posted to NHSSAA repos is public commons for others to use. Do not contribute anything you or your school are not happy to share openly.
+- If your work involves filming or analyzing school teams, check with your athletic director or school first.
+
 ## Rules
 
 - No personal information. No student full names, emails, phone numbers, addresses - in code, data, comments or commit messages.
